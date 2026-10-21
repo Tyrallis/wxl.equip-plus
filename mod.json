@@ -1,0 +1,15 @@
+{
+  "$schema": "../../sdk/schema/mod.json",
+  "id": "wxl.equip-plus",
+  "name": "Equip Plus",
+  "version": "1.3.0",
+  "abi": "0.5",
+  "description": "3D models on every armour slot: ItemDisplayInfo Model1/Model2 and Icon2 on every slot, WXLItemDisplayModels/Materials CSV sidecars, retail collection pieces with geoset filtering that follow the body's bones. x64 port of wxl-equip-plus 1.3.0.",
+  "binaries": {
+    "win-x64": "bin/x64/wxl-equip-plus.dll"
+  },
+  "requires": [
+    { "service": "wxl.m2", "version": 1 },
+    { "service": "wxl.storage", "version": 1 }
+  ]
+}
