@@ -192,7 +192,7 @@ namespace
         bool        defUseGender;
     };
 
-    // Indexed by the client's item slot (wxl_m2_equipment::item_slot), as upstream's model slot.
+    // Indexed by the client's item slot (wxl_appearance_args::item_slot), as upstream's model slot.
     constexpr SlotConfig kSlots[11] = {
         {"Head", 11, 55, true, true},        // 0  head
         {"Shoulder", 6, 5, false, false},    // 1  shoulder (Model1 left/6, Model2 right/5)
@@ -987,7 +987,7 @@ namespace
         return true;
     }
 
-    void Dress(const wxl_m2_equipment& change)
+    void Dress(const wxl_appearance_args& change)
     {
         const uint32_t slot = change.item_slot;
         if (slot >= kNumSlots) return; // the quiver, and weapons, are the client's own
@@ -1037,7 +1037,7 @@ namespace
             wxl_vec3   buckle{};
             if (attached == WXL_E_NOT_FOUND && piece.attach == kBeltBuckle && !rootSkinned && StandInBuckle(change.model, buckle))
             {
-                attached = g_m2->attach_to_bone(model, change.model, kBeltBuckle, kKeyBoneWaist, &buckle);
+                attached = g_m2->attach_to_bone(model, change.model, kBeltBuckle, kKeyBoneWaist, buckle);
                 if (attached == WXL_OK)
                     Verbose(Format("%s: no BeltBuckle on this body, pinned to its waist at (%.3f, %.3f, %.3f)",
                                    piece.model.c_str(), buckle.x, buckle.y, buckle.z));
@@ -1058,20 +1058,22 @@ namespace
         }
     }
 
-    void WXL_CALL OnEquipment(const wxl_m2_equipment* change, void*)
+    /// AppearanceChanged, subscribed raw: the args as the runtime raised them.
+    void WXL_CALL OnEquipment(void*, const void* args)
     {
+        const wxl_appearance_args* change = static_cast<const wxl_appearance_args*>(args);
         if (!change || !change->wearer) return;
         switch (change->change)
         {
-            case WXL_M2_EQUIPPED:
+            case WXL_APPEARANCE_WORN:
                 Dress(*change);
                 break;
-            case WXL_M2_UNEQUIPPED: {
+            case WXL_APPEARANCE_REMOVED: {
                 auto it = g_wearers.find(change->wearer);
                 if (it != g_wearers.end() && change->item_slot < kNumSlots) Clear(it->second.slots[change->item_slot]);
                 break;
             }
-            case WXL_M2_FREED: {
+            case WXL_APPEARANCE_FREED: {
                 auto it = g_wearers.find(change->wearer);
                 if (it == g_wearers.end()) break;
                 ClearAll(it->second);
@@ -1318,7 +1320,7 @@ SlashCmdList["EQUIPPLUS"] = function() toggle:Click() end
 
     PanelScript g_panelScript;
 
-    uint32_t g_watch = 0;
+    wxl::Subscription g_appearance;
 
     class EquipPlusMod final : public wxl::Mod
     {
@@ -1337,7 +1339,8 @@ SlashCmdList["EQUIPPLUS"] = function() toggle:Click() end
                 return WXL_E_UNSUPPORTED;
             }
             LoadSettings(dir);
-            const wxl_result watched = g_m2->watch_equipment(&OnEquipment, nullptr, &g_watch);
+            g_appearance = wxl::Subscribe(WXL_EV_AppearanceChanged, &OnEquipment, nullptr);
+            const wxl_result watched = g_appearance ? WXL_OK : WXL_E_UNSUPPORTED;
             if (watched != WXL_OK) return watched;
             wxl::ScriptMgr::Add(&g_panelScript);
             Info(Format("watching equipment%s", g_verbose ? " (verbose log)" : ""));
@@ -1373,8 +1376,7 @@ SlashCmdList["EQUIPPLUS"] = function() toggle:Click() end
         void OnUnload() override
         {
             equip_plus::physics_live::Shutdown();
-            if (g_m2 && g_watch) g_m2->unwatch_equipment(g_watch);
-            g_watch = 0;
+            g_appearance = wxl::Subscription();
             ReleaseEverything();
         }
 

@@ -5,9 +5,10 @@ A WarcraftXL mod for the recompiled x64 client that puts 3D models on every armo
 and, like upstream, is licensed under GPL-3.0.
 
 The original 32-bit extension detoured the client. x64 has no detours, so this port uses a runtime service,
-`wxl.m2`, plus component seams added to WarcraftXL core, sdk and client. Those changes are on the `x64-port`
+`wxl.m2`, plus component seams added to WarcraftXL core, sdk and client. Those are in WarcraftXL main
+(equipment through the `AppearanceChanged` event); live physics also needs wxl.m2's bone watchers, on the `x64-port`
 branch of [Tyrallis/client](https://github.com/Tyrallis/client/tree/x64-port), [Tyrallis/core](https://github.com/Tyrallis/core/tree/x64-port)
-and [Tyrallis/sdk](https://github.com/Tyrallis/sdk/tree/x64-port).
+and [Tyrallis/sdk](https://github.com/Tyrallis/sdk/tree/x64-port) until WarcraftXL takes them (the `x64-extras` pull requests).
 
 ![Character select with backport armour](verification-charselect.png)
 
@@ -41,7 +42,7 @@ and [Tyrallis/sdk](https://github.com/Tyrallis/sdk/tree/x64-port).
 ## Build
 
 Needs a checkout of the WarcraftXL SDK (`x64-port` branch) at `../../sdk`, or pass `-DWXL_SDK_DIR=...`.
-Build with Visual Studio 2022: the 2026 Insiders compiler (MSVC 14.50) crashes on the SDK's headers. Since 1.5.0 the mod needs the client and SDK of `x64-port` at WarcraftXL ABI 0.1.15; older clients refuse it.
+Build with Visual Studio 2022: MSVC 14.50 (VS 2026 Insiders) crashes on the SDK's headers. Since 1.6.0 the mod needs ABI 0.1.21 (`x64-port`); older clients refuse it.
 
 ```
 cmake -S . -B build
