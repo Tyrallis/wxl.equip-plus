@@ -21,6 +21,13 @@ and [Tyrallis/sdk](https://github.com/Tyrallis/sdk).
 - `WXLItemDisplayModels.csv` and `WXLItemDisplayModelMaterials.csv` sidecars.
 - Belts on stock bodies, which lack the BeltBuckle point: a stand-in point between the hips.
 - Works on players, dressed NPCs, character select and the dressing room.
+- Live retail physics (plumes, chains, cloth, wings) for every model with a row in a physics table:
+  `DBFilesClient\WXLEquipPlusPhysics.phy2` (the Backport Helper's pieces), and the Retroport
+  Workbench's `WXLCreaturePhysics.phy2` (creatures, mounts) and `WXLSpellPhysics.phy2` (spell models).
+  Run by Kirazul's port of retail's engine (`src/physics`, see its README) on `wxl.m2`'s bone watchers.
+  `[Physics] Enabled=1` in the mod's (or the client's) `WXLExtendedEquipment.ini`.
+- An Equip Plus panel in game: **F9** or `/equipplus`. Live physics on/off, its cost, the CSV counts,
+  the verbose log, and reloading the CSVs and physics tables.
 - Every `data\*.MPQ` in the mod folder is mounted, so a generated payload (for example `patch-W.MPQ`) can ship
   next to the mod.
 
@@ -28,8 +35,8 @@ and [Tyrallis/sdk](https://github.com/Tyrallis/sdk).
 
 - Head/shoulder takeover (replacing the client's own helm or pauldron models).
 - Weapon and creature model CSVs (need a virtual-file provider in `wxl.storage`).
-- Animation sync, helm offsets, retarget fit options, live physics.
-- The F9 overlay panel.
+- Animation sync, helm offsets, retarget fit options.
+- WarcraftXL's shared F9 overlay (`wxl.ui` is not published on x64): the panel is a game interface frame.
 
 ## Build
 

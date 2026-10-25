@@ -39,7 +39,10 @@
 
 #include "wxl/sdk.hpp"
 #include "wxl/services/m2.h"
+#include "wxl/services/script.hpp"
 #include "wxl/services/storage.hpp"
+
+#include "PhysicsLive.hpp"
 
 namespace
 {
@@ -1089,11 +1092,26 @@ namespace
 
     // --- Settings and payload -----------------------------------------------------------------------
 
+    void PhysicsLog(const char* line) { wxl::Log(WXL_LOG_INFO, kTag, line); }
+
+    /// The client's folder: where upstream (and the Workbench) keep WXLExtendedEquipment.ini.
+    std::string ClientDirectory()
+    {
+        char path[MAX_PATH];
+        const DWORD n = GetModuleFileNameA(nullptr, path, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH) return ".";
+        std::string dir(path, n);
+        const size_t slash = dir.find_last_of("\\/");
+        return slash == std::string::npos ? "." : dir.substr(0, slash);
+    }
+
     void LoadSettings(const std::string& dir)
     {
         const std::string ini = dir + "\\WXLExtendedEquipment.ini";
         g_verbose = GetPrivateProfileIntA("Log", "Verbose", 0, ini.c_str()) != 0;
         if (GetEnvironmentVariableA("WXL_EQUIP_LOG", nullptr, 0) != 0) g_verbose = true;
+        equip_plus::physics_live::SetLogger(&PhysicsLog);
+        equip_plus::physics_live::Init(ini, ClientDirectory() + "\\WXLExtendedEquipment.ini");
     }
 
     /// Mounts every archive in <mod>\data: .MPQ files and open .MPQ folders alike.
@@ -1112,6 +1130,194 @@ namespace
         } while (FindNextFileA(find, &found));
         FindClose(find);
     }
+
+    // --- The F9 panel ---------------------------------------------------------------------------------
+    //
+    // Upstream drew its panel in WarcraftXL's F9 overlay (UiAddPanel). The x64 runtime publishes no
+    // overlay (wxl.ui), so the same panel is an interface frame: the mod gives the game's script a
+    // few functions, and builds the frame once the interface has loaded. F9 (or /equipplus) shows
+    // and hides it.
+
+    uint32_t g_csvReloads = 0;
+
+    void ReloadSidecars()
+    {
+        g_sidecarModels.clear();
+        g_sidecarMaterials.clear();
+        g_exists.clear();
+        g_sidecarsLoaded = false;
+        LoadSidecars();
+        equip_plus::physics_live::LoadTable();
+        ++g_csvReloads;
+        Info(Format("panel: CSV sidecars and physics table reloaded (%zu displays with models, %zu with materials)",
+                    g_sidecarModels.size(), g_sidecarMaterials.size()));
+    }
+
+    /// EquipPlus_Stats() -> displays with models, with materials, models attached now, characters,
+    /// stale names ignored, missing files skipped, attachments lacked, physics on, table rows,
+    /// files matched, simulating now, last ms, worst ms, faults, log on, reloads
+    void ScriptStats(wxl::ScriptCall& call)
+    {
+        LoadSidecars();
+        size_t characters = 0, models = 0;
+        for (const auto& [wearer, dressed] : g_wearers)
+        {
+            size_t here = 0;
+            for (const SlotModels& slot : dressed.slots) here += slot.models.size();
+            if (here) ++characters;
+            models += here;
+        }
+        const auto ps = equip_plus::physics_live::GetStats();
+        call.PushNumber(double(g_sidecarModels.size()));
+        call.PushNumber(double(g_sidecarMaterials.size()));
+        call.PushNumber(double(models));
+        call.PushNumber(double(characters));
+        call.PushNumber(g_stats.staleIgnored);
+        call.PushNumber(g_stats.missingSkipped);
+        call.PushNumber(g_stats.attachFailed);
+        call.PushBool(equip_plus::physics_live::Enabled());
+        call.PushNumber(ps.tableRows);
+        call.PushNumber(ps.files);
+        call.PushNumber(ps.live);
+        call.PushNumber(ps.lastFrameMs);
+        call.PushNumber(ps.worstFrameMs);
+        call.PushNumber(ps.faults);
+        call.PushBool(g_verbose);
+        call.PushNumber(g_csvReloads);
+    }
+
+    void ScriptSetPhysics(wxl::ScriptCall& call)
+    {
+        const bool on = call.Bool(0).value_or(false);
+        equip_plus::physics_live::SetEnabled(on);
+        Info(Format("panel: live physics %s", on ? "on" : "off"));
+    }
+
+    void ScriptSetLog(wxl::ScriptCall& call) { g_verbose = call.Bool(0).value_or(false); }
+
+    void ScriptReload(wxl::ScriptCall&) { ReloadSidecars(); }
+
+    constexpr const char* kPanelLua = R"lua(
+if EquipPlusPanel or not EquipPlus_Stats or not UIParent then return end
+local f = CreateFrame("Frame", "EquipPlusPanel", UIParent)
+f:SetWidth(400); f:SetHeight(300); f:SetPoint("CENTER")
+f:SetFrameStrata("DIALOG"); f:SetToplevel(true); f:SetClampedToScreen(true)
+f:SetBackdrop({bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+               edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+               tile = true, tileSize = 32, edgeSize = 32,
+               insets = {left = 11, right = 12, top = 12, bottom = 11}})
+f:EnableMouse(true); f:SetMovable(true); f:RegisterForDrag("LeftButton")
+f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
+f:Hide()
+tinsert(UISpecialFrames, "EquipPlusPanel")
+
+local title = f:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+title:SetPoint("TOP", 0, -18); title:SetText("Equip Plus")
+local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+close:SetPoint("TOPRIGHT", -6, -6)
+
+local lines, y = {}, -46
+local function line(indent)
+  local t = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  t:SetPoint("TOPLEFT", 22 + (indent or 0), y); t:SetJustifyH("LEFT")
+  y = y - 15
+  lines[#lines + 1] = t
+  return t
+end
+local csv, attached = line(), line()
+y = y - 6
+local prot = line(); prot:SetText("|cffffd100Protection this session|r")
+local stale, missing = line(10), line(10)
+y = y - 6
+
+local phys = CreateFrame("CheckButton", "EquipPlusPhysicsCheck", f, "UICheckButtonTemplate")
+phys:SetPoint("TOPLEFT", 16, y + 4); y = y - 26
+EquipPlusPhysicsCheckText:SetText("Live physics (plumes, ribbons, chains, cloth)")
+phys:SetScript("OnClick", function(self) EquipPlus_SetPhysics(self:GetChecked() and true or false) end)
+local table_, cost = line(10), line(10)
+y = y - 4
+
+local log = CreateFrame("CheckButton", "EquipPlusLogCheck", f, "UICheckButtonTemplate")
+log:SetPoint("TOPLEFT", 16, y + 4); y = y - 30
+EquipPlusLogCheckText:SetText("Verbose log (Logs\\WarcraftXL.log)")
+log:SetScript("OnClick", function(self) EquipPlus_SetLog(self:GetChecked() and true or false) end)
+
+local reload = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+reload:SetWidth(170); reload:SetHeight(22); reload:SetPoint("TOPLEFT", 22, y)
+reload:SetText("Reload CSV and physics")
+reload:SetScript("OnClick", function() EquipPlus_Reload() end)
+y = y - 28
+local hint = line()
+
+local function refresh()
+  local models, mats, now, chars, staleN, missingN, lacked, physOn, rows, files, live, last, worst, faults, logOn, reloads = EquipPlus_Stats()
+  csv:SetText(format("CSV sidecars: %d displays with models, %d with materials", models, mats))
+  attached:SetText(format("Attached now: %d models on %d characters", now, chars))
+  stale:SetText(format("Stale stock helm/shoulder names ignored: %d", staleN))
+  missing:SetText(format("Missing model files skipped: %d; attachment points lacking: %d", missingN, lacked))
+  phys:SetChecked(physOn)
+  table_:SetText(format("Physics table: %d pieces (%d seen); simulating %d now", rows, files, live))
+  cost:SetText(format("Cost: %.3f ms last, %.3f ms worst; faults %d", last, worst, faults))
+  log:SetChecked(logOn)
+  if reloads > 0 then hint:SetText(format("Reloaded %d time(s). Re-equip an item to see a change on it.", reloads))
+  else hint:SetText("Edit a CSV, reload, then re-equip the item to see the change.") end
+end
+local wait = 0
+f:SetScript("OnShow", refresh)
+f:SetScript("OnUpdate", function(self, elapsed)
+  wait = wait - elapsed
+  if wait <= 0 then wait = 0.5; refresh() end
+end)
+
+local toggle = CreateFrame("Button", "EquipPlusToggleButton", UIParent)
+toggle:SetScript("OnClick", function() if f:IsShown() then f:Hide() else f:Show() end end)
+local function bind()
+  if not InCombatLockdown() then SetOverrideBindingClick(toggle, true, "F9", "EquipPlusToggleButton") end
+end
+bind()
+local ev = CreateFrame("Frame")
+ev:RegisterEvent("PLAYER_ENTERING_WORLD"); ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+ev:SetScript("OnEvent", bind)
+SLASH_EQUIPPLUS1 = "/equipplus"; SLASH_EQUIPPLUS2 = "/ep"
+SlashCmdList["EQUIPPLUS"] = function() toggle:Click() end
+)lua";
+
+    bool g_panelPending = false; // functions registered on this game context, panel not built yet
+
+    /// Registers the panel's functions on every game context.
+    /// Registers the panel's functions on every script context, and builds the panel once the game's
+    /// interface has loaded (its first PLAYER_LOGIN / PLAYER_ENTERING_WORLD). The Lua checks for
+    /// itself, so a context that is not the game's (the login screen has no UIParent) builds nothing.
+    class PanelScript final : public wxl::LuaScript
+    {
+    public:
+        void OnScriptVmReady(const wxl_script_vm_args&) override
+        {
+            const wxl::ScriptService script;
+            if (!script) return;
+            const wxl_result r = script.RegisterFunction<&ScriptStats>("EquipPlus_Stats");
+            script.RegisterFunction<&ScriptSetPhysics>("EquipPlus_SetPhysics");
+            script.RegisterFunction<&ScriptSetLog>("EquipPlus_SetLog");
+            script.RegisterFunction<&ScriptReload>("EquipPlus_Reload");
+            g_panelPending = r == WXL_OK;
+            if (r != WXL_OK) Warn(Format("panel functions not registered (%d)", static_cast<int>(r)));
+        }
+
+        void OnUiEvent(const wxl_ui_event_args& args) override
+        {
+            if (!g_panelPending || !args.name.data) return;
+            const std::string_view name(args.name.data, args.name.size);
+            if (name != "PLAYER_LOGIN" && name != "PLAYER_ENTERING_WORLD") return;
+            g_panelPending = false;
+            const wxl::ScriptService script;
+            if (!script) return;
+            const wxl_result r = script.Run(kPanelLua, "Equip Plus panel");
+            if (r == WXL_OK) Info("panel ready: F9 or /equipplus");
+            else Warn(Format("could not build the panel (%d)", static_cast<int>(r)));
+        }
+    };
+
+    PanelScript g_panelScript;
 
     uint32_t g_watch = 0;
 
@@ -1134,6 +1340,7 @@ namespace
             LoadSettings(dir);
             const wxl_result watched = g_m2->watch_equipment(&OnEquipment, nullptr, &g_watch);
             if (watched != WXL_OK) return watched;
+            wxl::ScriptMgr::Add(&g_panelScript);
             Info(Format("watching equipment%s", g_verbose ? " (verbose log)" : ""));
             return WXL_OK;
         }
@@ -1142,22 +1349,36 @@ namespace
         {
             const std::string dir = ModDirectory();
             if (!dir.empty()) MountPayload(dir);
+            equip_plus::physics_live::LoadTable();
         }
+
+        void OnReady() override
+        {
+            // The table may only be readable once every archive is up.
+            if (equip_plus::physics_live::GetStats().tableRows == 0) equip_plus::physics_live::LoadTable();
+        }
+
 
         void OnShutdown() override
         {
             Info(Format("session: %u piece(s) attached, %u stale stock model(s) ignored, %u missing model(s) skipped, %u "
                         "attachment(s) the character lacked",
                         g_stats.attached, g_stats.staleIgnored, g_stats.missingSkipped, g_stats.attachFailed));
+            const auto ps = equip_plus::physics_live::GetStats();
+            Info(Format("physics: %u table row(s), %u file(s) matched, %u step(s), %u fault(s), worst %.3f ms",
+                        ps.tableRows, ps.files, ps.steps, ps.faults, ps.worstFrameMs));
+            equip_plus::physics_live::Shutdown();
             ReleaseEverything();
         }
 
         void OnUnload() override
         {
+            equip_plus::physics_live::Shutdown();
             if (g_m2 && g_watch) g_m2->unwatch_equipment(g_watch);
             g_watch = 0;
             ReleaseEverything();
         }
+
     };
 }
 
