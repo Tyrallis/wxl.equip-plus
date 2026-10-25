@@ -1291,7 +1291,7 @@ SlashCmdList["EQUIPPLUS"] = function() toggle:Click() end
     class PanelScript final : public wxl::LuaScript
     {
     public:
-        void OnScriptVmReady(const wxl_script_vm_args&) override
+        void OnScriptVmReady(wxl_script_context, void*) override
         {
             const wxl::ScriptService script;
             if (!script) return;
@@ -1303,10 +1303,9 @@ SlashCmdList["EQUIPPLUS"] = function() toggle:Click() end
             if (r != WXL_OK) Warn(Format("panel functions not registered (%d)", static_cast<int>(r)));
         }
 
-        void OnUiEvent(const wxl_ui_event_args& args) override
+        void OnUiEvent(uint32_t, std::string_view name, std::string_view, wxl::Bytes, uint32_t) override
         {
-            if (!g_panelPending || !args.name.data) return;
-            const std::string_view name(args.name.data, args.name.size);
+            if (!g_panelPending) return;
             if (name != "PLAYER_LOGIN" && name != "PLAYER_ENTERING_WORLD") return;
             g_panelPending = false;
             const wxl::ScriptService script;
@@ -1382,4 +1381,4 @@ SlashCmdList["EQUIPPLUS"] = function() toggle:Click() end
     };
 }
 
-WXL_MOD(EquipPlusMod, "wxl.equip-plus", "Equip Plus", 1)
+WXL_MOD(EquipPlusMod, "wxl.equip-plus", "Equip Plus")

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(wxl-equip-plus VERSION 1.4.0 LANGUAGES NONE)
+project(wxl-equip-plus VERSION 1.5.0 LANGUAGES NONE)
 
 set(WXL_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../sdk" CACHE PATH "Path to the WarcraftXL SDK")
 include("${WXL_SDK_DIR}/cmake/wxl_add_mod.cmake")
