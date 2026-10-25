@@ -5,9 +5,9 @@ A WarcraftXL mod for the recompiled x64 client that puts 3D models on every armo
 and, like upstream, is licensed under GPL-3.0.
 
 The original 32-bit extension detoured the client. x64 has no detours, so this port uses a runtime service,
-`wxl.m2`, plus component seams added to WarcraftXL core, sdk and client. Those changes are on the `mod-support`
-branch of [Tyrallis/client](https://github.com/Tyrallis/client), [Tyrallis/core](https://github.com/Tyrallis/core)
-and [Tyrallis/sdk](https://github.com/Tyrallis/sdk).
+`wxl.m2`, plus component seams added to WarcraftXL core, sdk and client. Those changes are on the `x64-port`
+branch of [Tyrallis/client](https://github.com/Tyrallis/client/tree/x64-port), [Tyrallis/core](https://github.com/Tyrallis/core/tree/x64-port)
+and [Tyrallis/sdk](https://github.com/Tyrallis/sdk/tree/x64-port).
 
 ![Character select with backport armour](verification-charselect.png)
 
@@ -40,7 +40,7 @@ and [Tyrallis/sdk](https://github.com/Tyrallis/sdk).
 
 ## Build
 
-Needs a checkout of the WarcraftXL SDK (`mod-support` branch) at `../../sdk`, or pass `-DWXL_SDK_DIR=...`.
+Needs a checkout of the WarcraftXL SDK (`x64-port` branch) at `../../sdk`, or pass `-DWXL_SDK_DIR=...`.
 
 ```
 cmake -S . -B build
